@@ -17,7 +17,18 @@ class Settings(BaseSettings):
     ELASTICSEARCH_PASSWORD: str = ""
     ELASTICSEARCH_INDEX: str = "stories"
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.5-flash-lite"
+    GEMINI_MODEL: str = ""
+    
+    # Redis Configuration for LangGraph
+    REDIS_URL: str = "redis://localhost:6379"
+    REDIS_TTL: int = 86400  # 24 hours
+    
+    # Agent Configuration
+    USE_LANGGRAPH: bool = True
+    ENABLE_AGENT_STREAMING: bool = True
+    ENABLE_REFLECTION: bool = True
+    MAX_CONTEXT_TOKENS: int = 100000
+    MAX_RECURSION_LIMIT: int = 50
 
     model_config = SettingsConfigDict(
         env_file=".env",

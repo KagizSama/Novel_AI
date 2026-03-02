@@ -13,9 +13,21 @@ active_sessions: Dict[str, List[dict]] = {}
 
 class AgentService:
     def __init__(self):
-        self._setup_gemini()
+        if settings.USE_LANGGRAPH:
+            self._setup_langgraph()
+        else:
+            self._setup_gemini()
+    
+    def _setup_langgraph(self):
+        """Setup LangGraph-based agent."""
+        from app.services.langgraph_agent import LangGraphAgent
+        
+        logger.info("Initializing LangGraph agent")
+        self.langgraph_agent = LangGraphAgent()
+        self.mode = "langgraph"
         
     def _setup_gemini(self):
+        """Setup legacy Gemini-based agent (fallback)."""
         if not settings.GEMINI_API_KEY:
             logger.warning("GEMINI_API_KEY not set. Agent will not function.")
             return
@@ -23,25 +35,12 @@ class AgentService:
         self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
         self.model_name = settings.GEMINI_MODEL
         key_masked = settings.GEMINI_API_KEY[:5] + "..." + settings.GEMINI_API_KEY[-5:] if settings.GEMINI_API_KEY else "None"
-        logger.info(f"Configured Gemini with Key: {key_masked} | Model: {self.model_name}")
+        logger.info(f"Configured Gemini with Model: {self.model_name}")
         
         # Define Tools
         self.tools = [search_library, crawl_story]
         self.tool_declarations = self._build_tool_declarations()
-        
-    def _get_history(self, session_id: str) -> List[dict]:
-        if session_id not in active_sessions:
-            active_sessions[session_id] = []
-        return active_sessions[session_id]
-
-    def _update_history(self, session_id: str, role: str, content: str):
-        history = self._get_history(session_id)
-        # Keep history reasonable size (e.g., last 20 messages)
-        if len(history) > 20:
-            history.pop(0)
-        history.append({"role": "user" if role == "user" else "model", "parts": [content]})
-
-
+    
     def _build_tool_declarations(self) -> List[types.Tool]:
         """
         Build tool declarations from Python functions for Gemini API.
@@ -86,73 +85,90 @@ class AgentService:
         
         return [types.Tool(function_declarations=declarations)]
     
-    async def _rewrite_query(self, query: str, history: List[dict]) -> str:
-        """
-        Rewrite the query to be self-contained based on history.
-        """
-        if not history:
-            return query
-            
-        recent_history = history[-4:] # Last 2 turns
-        history_text = "\n".join([f"{msg['role']}: {msg['parts'][0]}" for msg in recent_history])
-        
-        prompt = f"""Bạn là một chuyên gia ngôn ngữ. 
-Nhiệm vụ: Viết lại câu hỏi sau đây sao cho nó đầy đủ ý nghĩa, thay thế các đại từ (nó, hắn, cô ấy, nhân vật này...) bằng tên riêng hoặc danh từ xác định dựa trên lịch sử hội thoại.
-(QUAN TRỌNG: Giữ nguyên các danh từ riêng, tên truyện, tên nhân vật trong ngoặc kép hoặc viết hoa nếu có. Không được tự ý thay đổi từ khóa tìm kiếm quan trọng).
-
-Lịch sử:
-{history_text}
-
-Câu hỏi gốc: "{query}"
-
-Câu hỏi viết lại (chỉ trả về câu hỏi, không giải thích gì thêm):"""
-
-        try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
-            rewritten = response.text.strip()
-            logger.info(f"Original: '{query}' -> Rewritten: '{rewritten}'")
-            return rewritten
-        except Exception as e:
-            logger.error(f"Query rewriting failed: {e}")
-            return query
-
     async def chat(self, query: str, session_id: str = "default", story_id: int = None) -> ChatResponse:
+        """
+        Process a chat query.
+        Routes to LangGraph agent if enabled, otherwise uses legacy Gemini agent.
+        """
+        # Route to LangGraph agent if enabled
+        if settings.USE_LANGGRAPH:
+            return await self._chat_langgraph(query, session_id)
+        
+        # Legacy Gemini agent
+        return await self._chat_gemini(query, session_id, story_id)
+    
+    async def _chat_langgraph(self, query: str, session_id: str) -> ChatResponse:
+        """Chat using LangGraph agent."""
         start_time = time.time()
         
-        # 1. Update History
+        try:
+            result = await self.langgraph_agent.chat(query, session_id)
+            
+            latency = time.time() - start_time
+            
+            return ChatResponse(
+                answer=result.get("answer", "Xin lỗi, không nhận được phản hồi."),
+                sources=result.get("sources", []),
+                latency=latency,
+                tool_name="langgraph"
+            )
+        except Exception as e:
+            logger.error(f"LangGraph agent failed: {e}")
+            latency = time.time() - start_time
+            return ChatResponse(
+                answer=f"Xin lỗi, hệ thống gặp lỗi: {str(e)}",
+                sources=[],
+                latency=latency,
+                tool_name=None
+            )
+    
+    async def _chat_gemini(self, query: str, session_id: str = "default", story_id: int = None) -> ChatResponse:
+        """Legacy Gemini chat implementation."""
+        start_time = time.time()
         history = self._get_history(session_id)
-        
-        # 2. Rewrite Query (Contextualization)
-        # We still keep this helper as it improves tool accuracy (resolving args)
         rewritten_query = await self._rewrite_query(query, history)
         
-        # 3. Chat Loop with Function Calling
-        
-        system_instruction = """Bạn là "Thủ Thư" (Librarian) - Hỗ trợ tìm kiếm và quản lý thư viện tiểu thuyết.
-Phong cách: Thân thiện, cổ trang nhẹ nhàng.
+        system_instruction = """Bạn là trợ lý thông minh chuyên về tiểu thuyết Trung Quốc và Việt Nam.
 
 CÔNG CỤ CÓ SẴN:
-- `search_library(query)`: Dùng khi người dùng hỏi về nội dung, nhân vật, cốt truyện, hoặc tìm truyện.
-- `crawl_story(url)`: Dùng khi người dùng đưa link và bảo "tải truyện", "cào truyện", "thêm truyện".
+- search_library(query): Tìm kiếm nội dung truyện trong thư viện
+- crawl_story(url): Tải truyện mới vào thư viện
 
-QUY TẮC TUYỆT ĐỐI (STRICT RULES):
-1. Nếu người dùng chào hỏi xã giao -> Trả lời tự nhiên.
-2. Nếu cần thông tin -> GỌI TOOL `search_library`.
-3. Nếu kết quả tool trả về là RỖNG (`[]` hoặc không có kết quả):
-   - TRẢ LỜI: "Xin lỗi, thư viện hiện tại chưa có bộ truyện [Tên Truyện] này."
-   - SAU ĐÓ GỢI Ý: "Nếu ngài có link truyện từ truyenfull.vn hoặc các trang khác, tại hạ có thể giúp cào truyện về thư viện cho ngài."
-4. Nếu người dùng nói "cào", "tải", "thêm", "download" mà KHÔNG có URL:
-   - HỎI LẠI: "Xin ngài vui lòng cung cấp link truyện (ví dụ: https://truyenfull.vn/ten-truyen/) để tại hạ có thể tải về thư viện."
-5. TUYỆT ĐỐI KHÔNG SỬ DỤNG kiến thức bên ngoài (training data) để bịa ra nội dung truyện nếu không có trong kết quả tìm kiếm.
-6. Nếu người dùng đưa link -> GỌI TOOL `crawl_story`.
-7. PHÂN BIỆT RÕ: Khi người dùng hỏi "Có truyện X không?":
-   - Hãy kiểm tra kỹ trường `story` trong kết quả trả về.
-   - Nếu KHÔNG thấy truyện nào có tên là X (hoặc gần giống X) -> BẮT BUỘC trả lời: "Xin lỗi, thư viện hiện tại chưa có bộ truyện [Tên Truyện] này."
-   - TUYỆT ĐỐI KHÔNG lôi các truyện khác (truyện Y, Z) ra để trả lời chỉ vì chúng có chứa từ khóa của X. Người dùng sẽ cảm thấy bị lừa.
-   - Chỉ trả lời "Có" nếu tìm thấy đúng truyện.
+QUY TẮC QUAN TRỌNG:
+1. LUÔN LUÔN gọi search_library khi người dùng hỏi về nội dung, nhân vật, hoặc cốt truyện
+2. Khi nhận kết quả từ search_library:
+   - ĐỌC CẨN THẬN TẤT CẢ các đoạn content được trả về
+   - TỔNG HỢP và KẾT NỐI thông tin từ NHIỀU chunks để tạo câu trả lời mạch lạc
+   - TRÍCH DẪN tên nhân vật, sự kiện, địa điểm cụ thể từ content
+3. TUYỆT ĐỐI KHÔNG bịa đặt thông tin không có trong results
+4. Nếu search trả về ít kết quả hoặc không đủ thông tin → nói rõ và đề xuất giải pháp
+
+HƯỚNG DẪN TÓM TẮT:
+- Khi user hỏi "tóm tắt bộ [tên truyện]":
+  * Gọi search_library với tên truyện
+  * Tập trung vào: bối cảnh, nhân vật chính, mục tiêu/nhiệm vụ, mối quan hệ, plot chính
+  * Tóm tắt TỔNG QUAN toàn bộ câu chuyện, không chỉ 1 chapter
+  * Kết hợp thông tin từ NHIỀU chapters khác nhau
+  
+- Khi user hỏi "tóm tắt tập 1" hoặc "tóm tắt phần đầu":
+  * Gọi search_library với từ khóa bao gồm "tập 1" hoặc "chương đầu"
+  * Chỉ tóm tắt các chapters ban đầu (~10 chapters đầu)
+  * Tập trung vào: cách nhân vật chính xuất hiện, bối cảnh mở đầu, sự kiện khởi đầu
+  
+- Khi user hỏi về nhân vật hoặc sự kiện cụ thể:
+  * Gọi search_library với tên nhân vật/sự kiện
+  * Cung cấp thông tin CHI TIẾT từ content
+  * Nêu rõ trong chapter nào thông tin này xuất hiện
+
+ĐỊNH DẠNG TRẢ LỜI:
+- Sử dụng ngôn ngữ tự nhiên, mạch lạc
+- Chia đoạn rõ ràng cho dễ đọc
+- Nêu tên truyện/chapter khi cần thiết
+- Khi có nhiều thông tin, tổ chức theo thứ tự logic (thời gian, tầm quan trọng)
+
+LƯU Ý:
+- Nếu user follow-up mà không nêu tên truyện → sử dụng context từ lịch sử chat
+- Nếu search trả về quá ít kết quả (<5) → thông báo và suggest crawl thêm data
 """
         
         # Build messages for Gemini
@@ -164,7 +180,7 @@ QUY TẮC TUYỆT ĐỐI (STRICT RULES):
         
         sources = []
         final_answer = ""
-        tool_name = None  # Track which tool was called
+        tool_name = None
         
         try:
             # Convert messages to new format
@@ -190,8 +206,7 @@ QUY TẮC TUYỆT ĐỐI (STRICT RULES):
                 )
             )
             
-            # Check for function call in the first candidate's first part
-            # Safe access pattern
+            # Check for function call
             if not response.candidates or not response.candidates[0].content.parts:
                 final_answer = "Xin lỗi, không nhận được phản hồi từ Gemini."
             else:
@@ -201,21 +216,17 @@ QUY TẮC TUYỆT ĐỐI (STRICT RULES):
                 if part.function_call:
                     fc = part.function_call
                     fn_name = fc.name
-                    # Convert MapComposite to dict safely
                     fn_args = {k: v for k, v in fc.args.items()}
+                    tool_name = fn_name
                     
                     logger.info(f"Gemini requested tool: {fn_name} with args: {fn_args}")
-                    tool_name = fn_name  # Track for frontend status
                 
                     # Execute Tool
                     tool_result = {}
                     if fn_name == "search_library":
-                        # Explicitly extract the query argument. Sometimes Gemini calls it 'query', sometimes something else if not strict.
-                        # But Python kwargs matching usually works if schema is inferred correctly.
                         q = fn_args.get("query")
                         if q:
                             tool_result = await search_library(q)
-                            # Extract sources for UI
                             if tool_result.get("results"):
                                 for res in tool_result["results"]:
                                     sources.append(SourceNode(
@@ -225,22 +236,18 @@ QUY TẮC TUYỆT ĐỐI (STRICT RULES):
                                         score=0.0
                                     ))
                         else:
-                             tool_result = {"error": "Missing query argument"}
+                            tool_result = {"error": "Missing query argument"}
 
                     elif fn_name == "crawl_story":
                         url = fn_args.get("url")
                         if url:
-                             tool_result = await crawl_story(url)
+                            tool_result = await crawl_story(url)
                         else:
-                             tool_result = {"error": "Missing url argument"}
+                            tool_result = {"error": "Missing url argument"}
                     
-                    # Send Tool Result back to Gemini with new API
-                    # Build contents list with user query, function call, and function response
-                    
-                    # Add function call content
+                    # Send Tool Result back to Gemini
                     contents.append(response.candidates[0].content)
                     
-                    # Add function response
                     function_response_part = types.Part.from_function_response(
                         name=fn_name,
                         response={"result": tool_result}
@@ -250,7 +257,7 @@ QUY TẮC TUYỆT ĐỐI (STRICT RULES):
                         parts=[function_response_part]
                     ))
                     
-                    # Second turn: Gemini generates answer based on tool result
+                    # Second turn
                     response2 = self.client.models.generate_content(
                         model=self.model_name,
                         contents=contents,
@@ -261,41 +268,95 @@ QUY TẮC TUYỆT ĐỐI (STRICT RULES):
                     )
                     
                     if not response2.candidates or not response2.candidates[0].content.parts:
-                         final_answer = "Xin lỗi, không nhận được phản hồi từ hệ thống."
+                        final_answer = "Xin lỗi, không nhận được phản hồi từ hệ thống."
                     else:
                         part2 = response2.candidates[0].content.parts[0]
                         if part2.function_call:
-                            # If it tries to call another function, we stop here for now (single-turn limit)
-                            # Or we could just tell the user specific info is missing.
                             logger.warning(f"Gemini attempted recursive tool call: {part2.function_call.name}")
                             final_answer = "Xin lỗi, tôi cần thêm bước xử lý nhưng hệ thống giới hạn 1 lượt gọi công cụ."
                         else:
                             final_answer = part2.text
-                    
-                    # Update history with the user query and the FINAL answer only (simplification for UI history)
-                    
                 else:
-                    # No tool call, just simple chat or text response
+                    # No function call
                     final_answer = part.text
-
+                    
         except Exception as e:
             logger.error(f"Gemini interaction failed: {e}")
             final_answer = "Xin lỗi, hệ thống đang gặp lỗi kỹ thuật."
             
-        # Update history (User -> Model)
+        # Update history
         self._update_history(session_id, "user", query)
         self._update_history(session_id, "model", final_answer)
         
         latency = time.time() - start_time
         
-        # Filter sources: Only return if user explicitly asks for them or implies checking sources
-        # Keywords: nguồn, link, đâu, source, chapter, chương, tập
-        show_sources_keywords = ["nguồn", "link", "đâu", "source", "chapter", "chương", "tập", "trích dẫn"]
-        should_show_sources = any(k in query.lower() for k in show_sources_keywords)
-        
         return ChatResponse(
             answer=final_answer,
-            sources=sources if should_show_sources else [], 
+            sources=sources if sources else [],
             latency=latency,
             tool_name=tool_name
         )
+    
+    # Indicators that suggest query needs LLM rewriting (ambiguous references)
+    _AMBIGUOUS_INDICATORS = [
+        "nó", "bộ đó", "bộ này", "truyện đó", "truyện này",
+        "tiếp", "tiếp theo", "phần sau", "phần tiếp",
+        "cái đó", "cái này", "ở trên", "vừa nãy",
+        "nhân vật đó", "tác giả đó", "chương tiếp",
+    ]
+    
+    async def _rewrite_query(self, query: str, history: List[dict]) -> str:
+        """Rewrite query based on history. Only calls LLM when query is ambiguous."""
+        if not history:
+            return query
+        
+        # Rule-based check: skip LLM if query is already clear
+        query_lower = query.lower()
+        needs_rewrite = any(
+            indicator in query_lower 
+            for indicator in self._AMBIGUOUS_INDICATORS
+        )
+        
+        if not needs_rewrite:
+            logger.debug(f"Query rewrite skipped (no ambiguity): '{query}'")
+            return query
+            
+        recent_history = history[-4:]
+        history_text = "\n".join([f"{msg['role']}: {msg['parts'][0]}" for msg in recent_history])
+        
+        prompt = f"""Bạn là một chuyên gia ngôn ngữ. 
+Nhiệm vụ: Viết lại câu hỏi sau đây sao cho nó đầy đủ ý nghĩa, thay thế các đại từ.
+
+Lịch sử:
+{history_text}
+
+Câu hỏi gốc: "{query}"
+
+Câu hỏi viết lại:"""
+
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
+            rewritten = response.text.strip()
+            logger.info(f"Original: '{query}' -> Rewritten: '{rewritten}'")
+            return rewritten
+        except Exception as e:
+            logger.error(f"Query rewriting failed: {e}")
+            return query
+    
+    def _get_history(self, session_id: str) -> List[dict]:
+        return active_sessions.get(session_id, [])
+    
+    def _update_history(self, session_id: str, role: str, content: str):
+        if session_id not in active_sessions:
+            active_sessions[session_id] = []
+        active_sessions[session_id].append({"role": role, "parts": [content]})
+        if len(active_sessions[session_id]) > 20:
+            active_sessions[session_id] = active_sessions[session_id][-20:]
+    
+    async def cleanup(self):
+        """Cleanup resources."""
+        if settings.USE_LANGGRAPH and hasattr(self, 'langgraph_agent'):
+            await self.langgraph_agent.close()

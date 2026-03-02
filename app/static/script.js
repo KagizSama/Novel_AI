@@ -73,16 +73,8 @@ function addMessage(text, sender, sources = []) {
     msgDiv.className = `message ${sender}`;
 
     // Convert newlines to breaks for bot messages
-    let formattedText = text;
-    if (sender === 'bot') {
-        formattedText = text.replace(/\n/g, '<br>');
-    }
-
-    // Auto-link URLs
-    formattedText = formattedText.replace(
-        /(https?:\/\/[^\s]+)/g,
-        '<a href="$1" target="_blank" style="color: #fff; text-decoration: underline;">$1</a>'
-    );
+    let formattedText = document.createElement('md-block');
+    formattedText.innerHTML = text;
 
     let sourcesHtml = '';
     if (sources && sources.length > 0) {
@@ -105,7 +97,7 @@ function addMessage(text, sender, sources = []) {
     // X-Style: No avatars, just content. 
     msgDiv.innerHTML = `
         <div class="content">
-            ${formattedText}
+            ${formattedText.outerHTML}
             ${sourcesHtml}
         </div>
     `;
@@ -140,12 +132,21 @@ function scrollToBottom() {
 // Global function for toggle
 window.toggleSources = function (btn) {
     const list = btn.nextElementSibling;
+
+    // Toggle the hidden class
     list.classList.toggle('hidden');
-    // Simple ASCII arrow toggle
+
+    // Update the arrow indicator
     const span = btn.querySelector('span');
+    const currentText = span.textContent;
+
     if (list.classList.contains('hidden')) {
-        span.textContent = span.textContent.replace('v', '>');
+        // Collapsed state - show ">"
+        span.textContent = currentText.replace('v VIEW', '> VIEW');
     } else {
-        span.textContent = span.textContent.replace('>', 'v');
+        // Expanded state - show "v"
+        span.textContent = currentText.replace('> VIEW', 'v VIEW');
     }
+
+    console.log('Toggle clicked. Hidden:', list.classList.contains('hidden'));
 };

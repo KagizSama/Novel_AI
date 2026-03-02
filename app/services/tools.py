@@ -12,26 +12,76 @@ from loguru import logger
 async def search_library(query: str) -> Dict[str, Any]:
     """
     Search for novels, characters, or plot details in the library.
+    Enhanced with intent classification and deeper retrieval.
     
     Args:
-        query: The search query (e.g., "truyện tiên hiệp hay", "nhân vật Ngu Dung Ca").
+        query: The search query (e.g., "truyện tiên hiệp hay", "nhân vật Ngu Dung Ca", "tóm tắt bộ X").
     
     Returns:
-        JSON containing list of relevant story chunks.
+        JSON containing list of relevant story chunks with metadata.
     """
     service = SearchService()
     try:
-        hits = await service.hybrid_search(query, limit=10)
+        # Intent classification and query analysis
+        query_lower = query.lower()
+        
+        # Detect summarization intent
+        is_summary = any(keyword in query_lower for keyword in [
+            "tóm tắt", "tóm lược", "kể", "nội dung", "cốt truyện", "câu chuyện"
+        ])
+        
+        # Detect specific chapter/volume request
+        is_volume_specific = any(keyword in query_lower for keyword in [
+            "tập 1", "tập 2", "tập đầu", "tập cuối",
+            "chương 1", "chương đầu", "phần đầu", "phần 1"
+        ])
+        
+        # Adjust retrieval depth based on intent
+        if is_summary:
+            # For summaries, retrieve more chunks to get comprehensive context
+            limit = 50
+        else:
+            # For specific searches, 30 is sufficient
+            limit = 30
+            
+        # Perform hybrid search
+        hits = await service.hybrid_search(query, limit=limit)
+        
+        # Process results with enhanced metadata
         results = []
+        seen_chapters = set()  # Deduplicate by chapter to avoid redundancy
+        
         for hit in hits:
             source = hit['_source']
+            chapter_key = f"{source.get('story_title')}_{source.get('chapter_title')}"
+            
+            # For summaries, we want diverse chapters, not multiple chunks from same chapter
+            if is_summary and chapter_key in seen_chapters:
+                continue
+                
             results.append({
                 "story": source.get('story_title'),
                 "chapter": source.get('chapter_title'),
-                "content": source.get('content')
+                "content": source.get('content'),
+                "score": hit.get('_score', 0)
             })
-        return {"results": results}
+            
+            if is_summary:
+                seen_chapters.add(chapter_key)
+        
+        # Add metadata to help LLM understand the context
+        metadata = {
+            "query_type": "summary" if is_summary else "search",
+            "is_volume_specific": is_volume_specific,
+            "total_results": len(results)
+        }
+        
+        return {
+            "results": results,
+            "metadata": metadata
+        }
     except Exception as e:
+        logger.error(f"Search library failed: {e}")
         return {"error": str(e)}
     finally:
         await service.close()

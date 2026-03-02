@@ -4,7 +4,10 @@ from app.services.agent_service import AgentService
 
 router = APIRouter()
 
-async def get_agent_service():
+from functools import lru_cache
+
+@lru_cache()
+def get_agent_service():
     return AgentService()
 
 @router.post("/chat", response_model=ChatResponse)

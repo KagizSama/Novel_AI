@@ -1,4 +1,4 @@
-import asyncio
+cghimport asyncio
 import sys
 import json
 import os

@@ -249,11 +249,14 @@ body {
     text-transform: uppercase;
     font-size: 0.7rem;
     padding: 6px 12px;
+    cursor: pointer;
+    transition: all 0.2s;
 }
 
 .toggle-sources:hover {
     border-color: #444;
     color: #888;
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .sources-list {
@@ -262,6 +265,10 @@ body {
     padding: 10px 0;
     color: #666;
     font-family: var(--font-mono);
+}
+
+.sources-list.hidden {
+    display: none;
 }
 
 .source-item {
@@ -278,6 +285,11 @@ body {
     font-family: var(--font-mono);
     color: #666;
     animation: blink 1s infinite;
+}
+
+/* fix markdown  */
+md-block ul {
+    margin-left: 1rem;
 }
 
 @keyframes blink {
