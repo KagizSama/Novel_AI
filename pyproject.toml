@@ -29,6 +29,9 @@ langchain = "^0.3.0"
 langchain-google-genai = "^2.0.0"
 langchain-core = "^0.3.0"
 redis = "^5.0.0"
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-jose = {extras = ["cryptography"], version = "^3.5.0"}
+google-auth = "^2.48.0"
 
 
 [tool.poetry.group.dev.dependencies]

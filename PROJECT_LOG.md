@@ -334,6 +334,38 @@ agent_node → reflect_node → [GOOD] → END
 
 ---
 
+### Phase 11: Full-Stack Upgrade — Auth + React Frontend (02/03/2026)
+
+**Mục tiêu**: Nâng cấp project thành full-stack app với authentication, role-based access control, và React frontend.
+
+**Thay đổi chính**:
+
+| # | Thay đổi | Files |
+|---|----------|-------|
+| 1 | **User model** — bảng `users` trong PostgreSQL | `models.py`, `create_users.py` |
+| 2 | **JWT Auth** — register, login, refresh, /me | `security.py` [NEW], `auth.py` [NEW] |
+| 3 | **RBAC** — chat (user+), crawl (admin only) | `agent.py`, `crawler.py` |
+| 4 | **CORS** — middleware cho React dev server | `main.py` |
+| 5 | **React Frontend** — Vite + React SPA | `frontend/` [NEW] |
+
+**Frontend pages**:
+
+| Page | Route | Auth | Mô tả |
+|------|-------|------|-------|
+| Login | `/login` | Public | Email + password form |
+| Register | `/register` | Public | Đăng ký tài khoản |
+| Chat | `/chat` | User+ | Chatbot AI (migrate từ vanilla) |
+| Library | `/library` | User+ | Browse thể loại, tìm truyện |
+| Admin | `/admin` | Admin | Crawl truyện, quản lý jobs |
+
+**Auth flow**: JWT access token (30 min) + refresh token (7 days). Auto-refresh on 401.
+
+**Backend dependencies**: `python-jose[cryptography]`, `bcrypt` (direct, not passlib).
+
+**Frontend dependencies**: `react-router-dom`, `axios`, `react-icons`.
+
+---
+
 ## ⚙️ Cấu hình quan trọng
 
 ### Environment Variables (`.env`)

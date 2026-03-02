@@ -2,9 +2,11 @@ import json
 import asyncio
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Response
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Response, Depends
 from app.services.crawler import CrawlerService
 from app.core.config import settings
+from app.core.security import get_current_user, require_admin
+from app.db.models import User
 from app.schemas.story import CrawlRequest, BatchCrawlRequest
 from app.db.session import AsyncSessionLocal
 from app.db.models import Job
@@ -107,7 +109,7 @@ async def run_crawl_job(job_id: str, url: str, is_batch: bool = False, limit: in
         await crawler.close()
 
 @router.post("/crawl")
-async def crawl_story(request: CrawlRequest, background_tasks: BackgroundTasks):
+async def crawl_story(request: CrawlRequest, background_tasks: BackgroundTasks, admin: User = Depends(require_admin)):
     job_id = str(uuid.uuid4())
     async with AsyncSessionLocal() as session:
         new_job = Job(id=job_id, url=request.url, type="single", status="pending")
@@ -118,7 +120,7 @@ async def crawl_story(request: CrawlRequest, background_tasks: BackgroundTasks):
     return {"message": "Crawl started", "job_id": job_id}
 
 @router.post("/batch")
-async def batch_crawl(request: BatchCrawlRequest, background_tasks: BackgroundTasks):
+async def batch_crawl(request: BatchCrawlRequest, background_tasks: BackgroundTasks, admin: User = Depends(require_admin)):
     job_id = str(uuid.uuid4())
     async with AsyncSessionLocal() as session:
         new_job = Job(id=job_id, url=request.list_url, type="batch", status="pending")
@@ -129,7 +131,7 @@ async def batch_crawl(request: BatchCrawlRequest, background_tasks: BackgroundTa
     return {"message": "Batch crawl started", "job_id": job_id}
 
 @router.get("/crawler/{job_id}/status")
-async def get_job_status(job_id: str):
+async def get_job_status(job_id: str, current_user: User = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         stmt = select(Job).where(Job.id == job_id)
         result = await session.execute(stmt)
@@ -151,7 +153,7 @@ async def get_job_status(job_id: str):
         }
 
 @router.get("/export/{job_id}")
-async def export_job_result(job_id: str):
+async def export_job_result(job_id: str, current_user: User = Depends(get_current_user)):
     async with AsyncSessionLocal() as session:
         stmt = select(Job).where(Job.id == job_id)
         result = await session.execute(stmt)

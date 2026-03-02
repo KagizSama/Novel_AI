@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     MAX_CONTEXT_TOKENS: int = 100000
     MAX_RECURSION_LIMIT: int = 50
 
+    # JWT Authentication
+    JWT_SECRET_KEY: str = "change-me-to-a-random-secret-key"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="APP_",

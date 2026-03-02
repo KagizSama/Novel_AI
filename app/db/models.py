@@ -1,10 +1,23 @@
-from sqlalchemy import Column, Integer, Text, String, ForeignKey, ARRAY, DateTime
+from sqlalchemy import Column, Integer, Text, String, ForeignKey, ARRAY, DateTime, Boolean
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import relationship, DeclarativeBase
 from sqlalchemy.sql import func
 
 class Base(DeclarativeBase):
     pass
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    username = Column(String(100), nullable=False)
+    hashed_password = Column(String(255), nullable=True)  # null for Google-only users
+    role = Column(String(20), default="user", nullable=False)  # "user" or "admin"
+    google_id = Column(String(255), unique=True, nullable=True)
+    avatar_url = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class Story(Base):
     __tablename__ = "stories"
