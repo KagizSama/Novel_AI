@@ -74,4 +74,11 @@ export const searchAPI = {
     search: (query) => api.get('/search', { params: { q: query } }),
 };
 
+// Library API (direct DB)
+export const libraryAPI = {
+    getGenres: () => api.get('/library/genres'),
+    getStories: (params) => api.get('/library/stories', { params }),
+    getStoryDetail: (id) => api.get(`/library/stories/${id}`),
+};
+
 export default api;

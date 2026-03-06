@@ -1,6 +1,6 @@
 # 📖 Truyen Crawler — Project Log
 
-> **Cập nhật lần cuối**: 2026-03-02
+> **Cập nhật lần cuối**: 2026-03-06
 >
 > Tài liệu này ghi lại lịch sử phát triển, kiến trúc, và các quyết định kỹ thuật quan trọng của dự án.
 
@@ -21,7 +21,7 @@
 | **LLM** | Google Gemini (`gemini-2.5-flash-lite`) via `google-genai` SDK |
 | **Agent Framework** | LangGraph + LangChain |
 | **State Management** | Redis (LangGraph checkpointer) |
-| **Frontend** | Vanilla HTML/CSS/JS (chat UI) |
+| **Frontend** | React 18 + Vite + Tailwind CSS 3 + Material Icons |
 | **Package Manager** | Poetry |
 | **Containerization** | Docker Compose (Elasticsearch + Redis) |
 
@@ -42,45 +42,60 @@ User (Chat UI) → FastAPI → AgentService
 
 ```
 truyen_crawler/
-├── app/
-│   ├── main.py                    # FastAPI app, routing
-│   ├── api/v1/endpoints/
-│   │   ├── crawler.py             # /api/v1/crawl endpoints
-│   │   ├── search.py              # /api/v1/search endpoint
-│   │   └── agent.py               # /api/v1/agent/chat endpoint
-│   ├── core/
-│   │   ├── config.py              # Pydantic Settings (env vars)
-│   │   └── exceptions.py          # Custom exceptions
-│   ├── db/
-│   │   ├── models.py              # SQLAlchemy models (Story, Chapter, ChapterChunk, Job)
-│   │   ├── session.py             # AsyncSessionLocal
-│   │   ├── backfill.py            # Reset + re-index data vào Elasticsearch
-│   │   └── add_embedding_col.py   # One-time migration: thêm cột embedding vào chapter_chunks
-│   ├── services/
-│   │   ├── agent_service.py       # AgentService — router giữa LangGraph vs Legacy
-│   │   ├── langgraph_agent.py     # LangGraphAgent — graph: agent → reflect → retry
-│   │   ├── langgraph_tools.py     # LangChain tools cho LangGraph (search, crawl)
-│   │   ├── tools.py               # Tool functions cho Legacy agent (search, crawl)
-│   │   ├── crawler.py             # CrawlerService — crawl truyện + auto-index
-│   │   ├── search_service.py      # SearchService — embedding + Elasticsearch hybrid search
-│   │   └── processor.py           # Text processor (chunking)
-│   ├── schemas/
-│   │   ├── story.py               # Pydantic models cho Story data
-│   │   └── agent.py               # ChatResponse, SourceNode schemas
-│   ├── utils/
-│   │   └── redis_checkpointer.py  # Redis-based checkpointer cho LangGraph
-│   └── static/                    # Chat UI (HTML/CSS/JS)
-├── tests/
-│   ├── test_agent_service.py
-│   ├── test_api.py
-│   ├── test_langgraph_agent.py
-│   └── test_search_service.py
-├── data/                          # Crawled JSON data (gitignored)
-├── runner.py                      # CLI: crawl single story
-├── batch_runner.py                # CLI: crawl batch stories
+├── backend/
+│   ├── app/
+│   │   ├── main.py                # FastAPI app, routing, health check
+│   │   ├── api/v1/endpoints/
+│   │   │   ├── crawler.py         # /api/v1/crawl endpoints
+│   │   │   ├── search.py          # /api/v1/search endpoint
+│   │   │   ├── agent.py           # /api/v1/agent/chat endpoint
+│   │   │   ├── auth.py            # /api/v1/auth (register, login, refresh)
+│   │   │   └── library.py         # /api/v1/library (genres, stories)
+│   │   ├── core/
+│   │   │   ├── config.py          # Pydantic Settings (env from project root)
+│   │   │   ├── security.py        # JWT auth, password hashing
+│   │   │   └── exceptions.py      # Custom exceptions
+│   │   ├── db/
+│   │   │   ├── models.py          # SQLAlchemy models (Story, Chapter, ChapterChunk, Job, User)
+│   │   │   ├── session.py         # AsyncSessionLocal
+│   │   │   ├── backfill.py        # Reset + re-index data vào Elasticsearch
+│   │   │   └── create_users.py    # Script tạo admin user
+│   │   ├── services/
+│   │   │   ├── agent_service.py   # AgentService — router giữa LangGraph vs Legacy
+│   │   │   ├── langgraph_agent.py # LangGraphAgent — graph: agent → reflect → retry
+│   │   │   ├── langgraph_tools.py # LangChain tools cho LangGraph
+│   │   │   ├── tools.py           # Tool functions cho Legacy agent
+│   │   │   ├── crawler.py         # CrawlerService — crawl truyện + auto-index
+│   │   │   ├── search_service.py  # SearchService — hybrid search
+│   │   │   └── processor.py       # Text processor (chunking)
+│   │   ├── schemas/
+│   │   │   ├── story.py           # Pydantic models cho Story data
+│   │   │   └── agent.py           # ChatResponse, SourceNode schemas
+│   │   └── utils/
+│   │       └── redis_checkpointer.py
+│   ├── scripts/
+│   │   ├── runner.py              # CLI: crawl single story
+│   │   └── batch_runner.py        # CLI: crawl batch stories
+│   ├── tests/
+│   │   ├── test_agent_service.py
+│   │   ├── test_api.py
+│   │   ├── test_langgraph_agent.py
+│   │   └── test_search_service.py
+│   ├── data/                      # Crawled JSON data (gitignored)
+│   └── pyproject.toml             # Python dependencies (Poetry)
+├── frontend/                      # React 18 + Vite + Tailwind CSS 3
+│   ├── src/
+│   │   ├── pages/                 # LoginPage, RegisterPage, ChatPage, AdminPage, LibraryPage
+│   │   ├── components/            # Navbar, ProtectedRoute
+│   │   ├── contexts/              # AuthContext (JWT)
+│   │   └── api/                   # Axios client
+│   ├── public/                    # Static assets (logo)
+│   ├── tailwind.config.js
+│   └── package.json
 ├── docker-compose.yml             # Elasticsearch + Redis
-├── pyproject.toml                 # Python dependencies (Poetry)
-└── .env                           # Environment variables
+├── .env                           # Environment variables (project root)
+├── .gitignore
+└── PROJECT_LOG.md
 ```
 
 ---
@@ -366,6 +381,61 @@ agent_node → reflect_node → [GOOD] → END
 
 ---
 
+### Phase 12: Stitch Monochrome Frontend Redesign (06/03/2026)
+
+**Mục tiêu**: Thay thế toàn bộ giao diện frontend từ vanilla CSS (purple theme) sang monochrome black-and-white design dựa trên 4 mockup từ Google Stitch.
+
+**Thay đổi chính**:
+
+| # | Thay đổi | Files |
+|---|----------|-------|
+| 1 | **Tailwind CSS setup** — install v3 + @tailwindcss/forms + PostCSS | `tailwind.config.js` [NEW], `postcss.config.js` [NEW] |
+| 2 | **Fonts & Icons** — Google Inter + Material Icons CDN | `index.html` |
+| 3 | **CSS overhaul** — xóa 1158 dòng vanilla CSS, thay bằng Tailwind directives + custom animations | `index.css`, `App.css` [DELETE] |
+| 4 | **App layout** — restructure routes: auth pages standalone, nav+main wrapper cho protected routes | `App.jsx` |
+| 5 | **Navbar** — monochrome bar, Material Icons, active state, admin badge | `Navbar.jsx` |
+| 6 | **Login/Register** — centered dark card, white border, glow effects, Material Icons | `LoginPage.jsx`, `RegisterPage.jsx` |
+| 7 | **Chat** — sidebar + welcome state + suggestion pills + styled message bubbles + typing indicator | `ChatPage.jsx` |
+| 8 | **Admin** — single/batch crawl cards, terminal-style system logs, job list with progress bars | `AdminPage.jsx` |
+| 9 | **Library** — genre grid with Material Icons mapping, story list, detail view, search + pagination | `LibraryPage.jsx` |
+
+**Design assets** (reference): Tải 4 HTML mockup từ Stitch API vào `frontend/stitch_designs/` (login, chat, admin, library).
+
+**Preserved (không thay đổi)**:
+- `api/client.js` — tất cả API calls
+- `contexts/AuthContext.jsx` — authentication logic
+- `components/ProtectedRoute.jsx` — route guards
+
+**Ghi chú kỹ thuật**:
+- Tailwind v3 với dark mode `class` strategy (html có `class="dark"`)
+- Custom color palette: black background, white borders/accents, zinc-800/900 surfaces
+- Material Icons dùng 2 families: `Material Icons` + `Material Icons Outlined`
+- Build output: 27.88 kB CSS (5.81 kB gzip), 256.27 kB JS (81.67 kB gzip)
+
+---
+
+### Phase 13: Directory Restructure (06/03/2026)
+
+**Mục tiêu**: Tổ chức lại thư mục dự án theo cấu trúc `backend/` + `frontend/` rõ ràng, xóa file thừa.
+
+**Thay đổi chính**:
+
+| # | Thay đổi | Chi tiết |
+|---|----------|----------|
+| 1 | **Xóa file obsolete** | `app/static/` (old vanilla UI), `frontend/stitch_designs/`, `frontend/dist/`, `app/db/add_embedding_col.py` |
+| 2 | **Di chuyển vào `backend/`** | `app/` → `backend/app/`, `tests/` → `backend/tests/`, `pyproject.toml` + `poetry.lock` → `backend/` |
+| 3 | **CLI scripts** | `runner.py`, `batch_runner.py` → `backend/scripts/` |
+| 4 | **Update `main.py`** | Xóa static file serving (`StaticFiles`, `FileResponse`), thay bằng health check endpoint |
+| 5 | **Fix `.env` path** | `config.py` dùng `Path(__file__).resolve().parents[3] / ".env"` để tìm `.env` ở project root |
+| 6 | **Update `.gitignore`** | Thêm `frontend/dist/`, `frontend/node_modules/`, cập nhật path `backend/data/` |
+
+**Ghi chú kỹ thuật**:
+- Package name vẫn là `app` → **0 import changes** cần thiết
+- Poetry tạo virtualenv mới khi chạy từ `backend/` — cần `poetry install` lại
+- `.env` nằm ở project root, `config.py` resolve bằng `Path` relative
+
+---
+
 ## ⚙️ Cấu hình quan trọng
 
 ### Environment Variables (`.env`)
@@ -389,17 +459,20 @@ agent_node → reflect_node → [GOOD] → END
 # 1. Start services
 docker compose up -d          # Elasticsearch + Redis
 
-# 2. Install dependencies
-poetry install
+# 2. Install backend dependencies
+cd backend && poetry install
 
-# 3. Start app
-poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# 3. Start backend
+cd backend && poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# 4. (Optional) Backfill data vào Elasticsearch
-poetry run python -m app.db.backfill
+# 4. Start frontend
+cd frontend && npm install && npm run dev
 
-# 5. (Optional) Crawl single story
-poetry run python runner.py <story_url>
+# 5. (Optional) Backfill data vào Elasticsearch
+cd backend && poetry run python -m app.db.backfill
+
+# 6. (Optional) Crawl single story
+cd backend && poetry run python scripts/runner.py <story_url>
 ```
 
 ---

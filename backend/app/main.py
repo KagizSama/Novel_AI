@@ -1,9 +1,7 @@
 import os
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.v1.endpoints import crawler, search, agent, auth
+from app.api.v1.endpoints import crawler, search, agent, auth, library
 from app.core.config import settings
 
 from contextlib import asynccontextmanager
@@ -26,14 +24,14 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(library.router, prefix="/api/v1/library", tags=["library"])
 app.include_router(crawler.router, prefix="/api/v1", tags=["crawler"])
 app.include_router(search.router, prefix="/api/v1", tags=["search"])
 app.include_router(agent.router, prefix="/api/v1/agent", tags=["agent"])
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 @app.get("/")
-async def read_root():
-    return FileResponse("app/static/index.html")
+async def health_check():
+    return {"status": "ok", "service": "TruyenFull Crawler API"}
 
 if __name__ == "__main__":
     import uvicorn
