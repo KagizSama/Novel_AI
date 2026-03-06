@@ -1,6 +1,6 @@
 # 📖 Truyen Crawler — Project Log
 
-> **Cập nhật lần cuối**: 2026-03-06
+> **Cập nhật lần cuối**: 2026-03-06 (Phase 14)
 >
 > Tài liệu này ghi lại lịch sử phát triển, kiến trúc, và các quyết định kỹ thuật quan trọng của dự án.
 
@@ -50,7 +50,8 @@ truyen_crawler/
 │   │   │   ├── search.py          # /api/v1/search endpoint
 │   │   │   ├── agent.py           # /api/v1/agent/chat endpoint
 │   │   │   ├── auth.py            # /api/v1/auth (register, login, refresh)
-│   │   │   └── library.py         # /api/v1/library (genres, stories)
+│   │   │   ├── library.py         # /api/v1/library (genres, stories)
+│   │   │   └── chat_history.py    # /api/v1/chat (sessions CRUD)
 │   │   ├── core/
 │   │   │   ├── config.py          # Pydantic Settings (env from project root)
 │   │   │   ├── security.py        # JWT auth, password hashing
@@ -58,8 +59,7 @@ truyen_crawler/
 │   │   ├── db/
 │   │   │   ├── models.py          # SQLAlchemy models (Story, Chapter, ChapterChunk, Job, User)
 │   │   │   ├── session.py         # AsyncSessionLocal
-│   │   │   ├── backfill.py        # Reset + re-index data vào Elasticsearch
-│   │   │   └── create_users.py    # Script tạo admin user
+│   │   │   └── backfill.py        # Reset + re-index data vào Elasticsearch
 │   │   ├── services/
 │   │   │   ├── agent_service.py   # AgentService — router giữa LangGraph vs Legacy
 │   │   │   ├── langgraph_agent.py # LangGraphAgent — graph: agent → reflect → retry
@@ -433,6 +433,29 @@ agent_node → reflect_node → [GOOD] → END
 - Package name vẫn là `app` → **0 import changes** cần thiết
 - Poetry tạo virtualenv mới khi chạy từ `backend/` — cần `poetry install` lại
 - `.env` nằm ở project root, `config.py` resolve bằng `Path` relative
+
+---
+
+### Phase 14: Chat History (06/03/2026)
+
+**Mục tiêu**: Lưu lại lịch sử chat, cho phép người dùng xem lại, chuyển session, và xóa đoạn chat.
+
+**Thay đổi chính**:
+
+| # | Thay đổi | Files |
+|---|----------|-------|
+| 1 | **DB models** — `ChatSession` (UUID, user_id, title, timestamps) + `ChatMessage` (role, content, sources_json) | `models.py` |
+| 2 | **API endpoints** — 5 routes: list sessions, create, get messages, delete, rename | `chat_history.py` [NEW] |
+| 3 | **Message persistence** — agent.py lưu user + assistant messages sau mỗi exchange, auto-title session | `agent.py` |
+| 4 | **Router** — register `/api/v1/chat` prefix | `main.py` |
+| 5 | **Frontend API** — `chatHistoryAPI` (getSessions, createSession, getMessages, deleteSession, renameSession) | `client.js` |
+| 6 | **ChatPage sidebar** — session list, click chuyển, hover delete, auto-create on first message | `ChatPage.jsx` |
+| 7 | **Cleanup** — xóa one-time scripts: `create_users.py`, `create_chat_tables.py` | — |
+
+**Ghi chú kỹ thuật**:
+- Session auto-title: lấy 80 ký tự đầu của tin nhắn user đầu tiên
+- Sources lưu dạng JSON string trong `sources_json` column
+- Tất cả endpoints verify ownership (user chỉ thấy session của mình)
 
 ---
 

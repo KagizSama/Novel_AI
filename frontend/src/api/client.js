@@ -62,6 +62,15 @@ export const agentAPI = {
     chat: (query, sessionId) => api.post('/agent/chat', { query, session_id: sessionId }),
 };
 
+// Chat History API
+export const chatHistoryAPI = {
+    getSessions: () => api.get('/chat/sessions'),
+    createSession: (title) => api.post('/chat/sessions', { title: title || 'New Chat' }),
+    getMessages: (sessionId) => api.get(`/chat/sessions/${sessionId}/messages`),
+    deleteSession: (sessionId) => api.delete(`/chat/sessions/${sessionId}`),
+    renameSession: (sessionId, title) => api.patch(`/chat/sessions/${sessionId}`, { title }),
+};
+
 // Crawler API (admin)
 export const crawlerAPI = {
     crawl: (url) => api.post('/crawl', { url }),

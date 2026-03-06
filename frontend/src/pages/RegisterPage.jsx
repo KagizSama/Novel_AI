@@ -49,8 +49,8 @@ export default function RegisterPage() {
                 {/* Header */}
                 <div className="text-center mb-8">
                     <div className="flex items-center justify-center mb-4">
-                        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-white/10">
-                            <span className="material-icons text-black text-2xl">person_add</span>
+                        <div className="w-12 h-12 rounded-xl overflow-hidden shadow-lg shadow-white/10">
+                            <img src="/logo.jpg" alt="Novel AI" className="w-full h-full object-cover" />
                         </div>
                     </div>
                     <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Create Account</h1>

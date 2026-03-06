@@ -70,3 +70,28 @@ class Job(Base):
     error = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+    
+    id = Column(String, primary_key=True)  # UUID
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(200), default="New Chat")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan", order_by="ChatMessage.created_at")
+    user = relationship("User")
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String, ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    role = Column(String(20), nullable=False)  # "user" or "assistant"
+    content = Column(Text, nullable=False)
+    sources_json = Column(Text, nullable=True)  # JSON string of sources array
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    session = relationship("ChatSession", back_populates="messages")
+
