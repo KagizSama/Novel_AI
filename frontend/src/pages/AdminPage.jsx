@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { crawlerAPI } from '../api/client';
 
 export default function AdminPage() {
@@ -13,10 +13,58 @@ export default function AdminPage() {
         '> [SYSTEM] Crawler engine ready.',
         '> [STATUS] Idle. Awaiting user input.'
     ]);
+    const logsEndRef = useRef(null);
+    const pollIntervalRef = useRef(null);
 
     const addLog = (text) => {
-        setLogs(prev => [...prev, text]);
+        const ts = new Date().toLocaleTimeString('vi-VN');
+        setLogs(prev => [...prev, `[${ts}] ${text}`]);
     };
+
+    // Auto-scroll logs
+    useEffect(() => {
+        logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [logs]);
+
+    // Auto-poll active jobs every 3 seconds
+    useEffect(() => {
+        const activeJobs = jobs.filter(j => j.status === 'pending' || j.status === 'processing');
+
+        if (activeJobs.length > 0) {
+            pollIntervalRef.current = setInterval(async () => {
+                for (const job of activeJobs) {
+                    try {
+                        const res = await crawlerAPI.getJobStatus(job.id);
+                        const updated = res.data;
+                        setJobs(prev => prev.map(j => j.id === job.id ? updated : j));
+
+                        // Log progress changes
+                        if (updated.progress !== job.progress) {
+                            addLog(`> [PROGRESS] Job ${job.id.slice(0, 8)}... → ${updated.progress}%`);
+                        }
+                        if (updated.status !== job.status) {
+                            if (updated.status === 'completed') {
+                                addLog(`> [✅ DONE] Job ${job.id.slice(0, 8)}... completed!`);
+                            } else if (updated.status === 'failed') {
+                                addLog(`> [❌ FAIL] Job ${job.id.slice(0, 8)}... failed: ${updated.error || 'Unknown error'}`);
+                            } else {
+                                addLog(`> [STATUS] Job ${job.id.slice(0, 8)}... → ${updated.status}`);
+                            }
+                        }
+                    } catch {
+                        // ignore polling errors
+                    }
+                }
+            }, 3000);
+        }
+
+        return () => {
+            if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+            }
+        };
+    }, [jobs]);
 
     const handleCrawl = async (e) => {
         e.preventDefault();
@@ -64,7 +112,7 @@ export default function AdminPage() {
         try {
             const res = await crawlerAPI.getJobStatus(jobId);
             setJobs(prev => prev.map(j => j.id === jobId ? res.data : j));
-            addLog(`> [STATUS] Job ${jobId.slice(0, 8)}... status: ${res.data.status}`);
+            addLog(`> [STATUS] Job ${jobId.slice(0, 8)}... status: ${res.data.status} (${res.data.progress}%)`);
         } catch {
             // ignore
         }
@@ -88,8 +136,8 @@ export default function AdminPage() {
             {/* Alert */}
             {message && (
                 <div className={`mb-6 p-3 rounded-lg text-sm border ${message.type === 'success'
-                        ? 'bg-green-500/10 border-green-500/30 text-green-400'
-                        : 'bg-red-500/10 border-red-500/30 text-red-400'
+                    ? 'bg-green-500/10 border-green-500/30 text-green-400'
+                    : 'bg-red-500/10 border-red-500/30 text-red-400'
                     }`}>
                     {message.text}
                 </div>
@@ -183,9 +231,15 @@ export default function AdminPage() {
                                         {job.progress !== undefined && (
                                             <div className="flex items-center gap-2">
                                                 <div className="w-20 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                                                    <div className="h-full bg-white rounded-full transition-all" style={{ width: `${job.progress}%` }} />
+                                                    <div
+                                                        className={`h-full rounded-full transition-all duration-500 ${job.status === 'completed' ? 'bg-green-400' :
+                                                                job.status === 'failed' ? 'bg-red-400' :
+                                                                    'bg-white'
+                                                            }`}
+                                                        style={{ width: `${job.progress}%` }}
+                                                    />
                                                 </div>
-                                                <span className="text-xs text-gray-400">{job.progress}%</span>
+                                                <span className="text-xs text-gray-400 w-8 text-right">{job.progress}%</span>
                                             </div>
                                         )}
                                         <button
@@ -208,17 +262,26 @@ export default function AdminPage() {
                     <span className="material-icons text-lg text-white">terminal</span>
                     <h3 className="text-lg font-semibold text-white">System Logs & Status</h3>
                 </div>
-                <div className="bg-black border border-white rounded-md p-4 h-40 overflow-y-auto font-mono text-sm text-white space-y-1">
+                <div className="bg-black border border-white rounded-md p-4 h-48 overflow-y-auto font-mono text-xs text-white space-y-1">
                     {logs.map((log, i) => (
-                        <div key={i}>{log}</div>
+                        <div key={i} className={
+                            log.includes('ERROR') || log.includes('FAIL') ? 'text-red-400' :
+                                log.includes('SUCCESS') || log.includes('DONE') ? 'text-green-400' :
+                                    log.includes('PROGRESS') ? 'text-yellow-400' :
+                                        log.includes('ACTION') ? 'text-blue-400' :
+                                            'text-gray-400'
+                        }>{log}</div>
                     ))}
+                    <div ref={logsEndRef} />
                 </div>
             </div>
 
             {/* Status Badge */}
             <div className="fixed bottom-4 left-4 bg-black text-white text-xs px-3 py-1.5 rounded border border-white flex items-center gap-2 z-50 font-mono">
                 <span className="text-gray-400">SYS_STATUS</span>
-                <span className="font-bold text-white">ONLINE</span>
+                <span className={`font-bold ${jobs.some(j => j.status === 'processing') ? 'text-yellow-400' : 'text-white'}`}>
+                    {jobs.some(j => j.status === 'processing') ? 'CRAWLING' : 'ONLINE'}
+                </span>
             </div>
         </div>
     );

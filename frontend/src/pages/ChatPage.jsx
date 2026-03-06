@@ -11,9 +11,11 @@ export default function ChatPage() {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [sessionsLoading, setSessionsLoading] = useState(true);
+    const [messagesLoading, setMessagesLoading] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
+    const creatingSessionRef = useRef(false); // Lock to prevent duplicate session creation
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -40,6 +42,7 @@ export default function ChatPage() {
     const loadMessages = useCallback(async (sessionId) => {
         if (!sessionId) return;
         try {
+            setMessagesLoading(true);
             const res = await chatHistoryAPI.getMessages(sessionId);
             setMessages(res.data.map(m => ({
                 role: m.role,
@@ -49,15 +52,21 @@ export default function ChatPage() {
         } catch (err) {
             console.error('Failed to load messages:', err);
             setMessages([]);
+        } finally {
+            setMessagesLoading(false);
         }
     }, []);
 
     const handleSelectSession = (sessionId) => {
+        if (sessionId === activeSessionId) return; // Skip if already active
         setActiveSessionId(sessionId);
+        setMessages([]); // Clear immediately to avoid flicker
         loadMessages(sessionId);
     };
 
     const handleNewChat = async () => {
+        if (creatingSessionRef.current) return; // Prevent double-click
+        creatingSessionRef.current = true;
         try {
             const res = await chatHistoryAPI.createSession();
             const newSession = res.data;
@@ -67,6 +76,8 @@ export default function ChatPage() {
             inputRef.current?.focus();
         } catch (err) {
             console.error('Failed to create session:', err);
+        } finally {
+            creatingSessionRef.current = false;
         }
     };
 
@@ -88,9 +99,11 @@ export default function ChatPage() {
         e.preventDefault();
         if (!input.trim() || loading) return;
 
-        // Auto-create session if none active
+        // Auto-create session if none active (with lock)
         let sessionId = activeSessionId;
         if (!sessionId) {
+            if (creatingSessionRef.current) return; // Already creating
+            creatingSessionRef.current = true;
             try {
                 const res = await chatHistoryAPI.createSession();
                 const newSession = res.data;
@@ -98,8 +111,10 @@ export default function ChatPage() {
                 setActiveSessionId(newSession.id);
                 sessionId = newSession.id;
             } catch {
+                creatingSessionRef.current = false;
                 return;
             }
+            creatingSessionRef.current = false;
         }
 
         const userMsg = input.trim();
@@ -232,7 +247,15 @@ export default function ChatPage() {
 
                 {/* Messages Area */}
                 <div className="flex-1 overflow-y-auto px-4 py-6">
-                    {messages.length === 0 && !loading ? (
+                    {messagesLoading ? (
+                        /* Loading spinner when switching sessions */
+                        <div className="flex items-center justify-center h-full">
+                            <div className="text-center">
+                                <span className="material-icons text-3xl text-gray-500 animate-spin">sync</span>
+                                <p className="text-gray-500 text-sm mt-2">Loading messages...</p>
+                            </div>
+                        </div>
+                    ) : messages.length === 0 && !loading ? (
                         /* Welcome State */
                         <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto text-center animate-fade-in">
                             <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-6">
